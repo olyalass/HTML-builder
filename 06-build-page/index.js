@@ -1,4 +1,5 @@
 const filesys = require("fs");
+const fsPromises = require("fs/promises");
 const path = require("path");
 const target = path.join(__dirname, "./template.html");
 const newFile = path.join(__dirname, "./project-dist/index.html");
@@ -11,74 +12,97 @@ const styleFile = path.join(__dirname, "./project-dist/style.css");
 const zones = {
   "{{header}}": path.join(__dirname, "./components/header.html"),
   "{{articles}}": path.join(__dirname, "./components/articles.html"),
-  "{{footer}}": path.join(__dirname, "./components/footer.html"),
   "{{about}}": path.join(__dirname, "./components/about.html"),
+  "{{footer}}": path.join(__dirname, "./components/footer.html"),
 };
 
 function buildHtml() {
-  if (doesExist(dist)) {
-    filesys.rm(
-      dist,
-      {
-        recursive: true,
-        force: true,
-      },
-      (err) => {
+  doesExist(dist, (err, exist) => {
+    if (exist) {
+      filesys.rm(
+        dist,
+        {
+          recursive: true,
+          force: true,
+        },
+        (err) => {
+          if (err) {
+            throw err;
+          }
+          buildHtml();
+        }
+      );
+    } else {
+      filesys.mkdir(dist, { recursive: true }, (err) => {
         if (err) {
           throw err;
         }
-        buildHtml();
-      }
-    );
-  } else {
-    filesys.mkdir(dist, { recursive: true }, (err) => {
-      if (err) {
-        throw err;
-      }
 
-      insertFiles();
+        insertFiles()
+          .then(() => {
+            console.log("Files inserted successfully");
+          })
+          .catch((err) => {
+            console.error(err);
+          });
 
-      copyDir(assets, newAssets);
+        copyDir(assets, newAssets);
 
-      combineCss(styles, styleFile);
-    });
-  }
-}
-
-function insertFiles() {
-  filesys.readFile(target, "utf8", (err, data) => {
-    if (err) {
-      console.error(err);
+        combineCss(styles, styleFile);
+      });
     }
-
-    let modifiedData = data;
-
-    Object.keys(zones).forEach((zoneName) => {
-      if (modifiedData.includes(zoneName)) {
-        const zoneContents = filesys.readFileSync(zones[zoneName], "utf8");
-        modifiedData = modifiedData.replace(zoneName, zoneContents);
-      }
-    });
-
-    filesys.writeFile(newFile, modifiedData, "utf8", (err) => {
-      if (err) {
-        console.error(err);
-      }
-    });
   });
 }
 
-function doesExist(path) {
-  try {
-    const stats = filesys.statSync(path);
-    return stats.isDirectory();
-  } catch (err) {
-    if (err.code === "ENOENT") {
-      return false;
+async function insertFiles() {
+  const targetFile = await fsPromises.readFile(target, "utf8");
+
+  return Object.entries(zones)
+    .reduce((acc, [zone, zoneFile]) => {
+      if (targetFile.includes(zone)) {
+        return acc.then(
+          (data) =>
+            new Promise((writeNewFile, reject) => {
+              filesys.readFile(zoneFile, "utf-8", (error, zoneContents) => {
+                if (error) {
+                  console.error(`Error reading ${zone}: ${error.message}`);
+                  reject(error);
+                } else {
+                  writeNewFile(data.replace(zone, zoneContents));
+                }
+              });
+            })
+        );
+      }
+
+      return acc;
+    }, Promise.resolve(targetFile))
+    .then(
+      (data) =>
+        new Promise((resolve, reject) => {
+          filesys.writeFile(newFile, data, "utf8", (err) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        })
+    );
+}
+
+function doesExist(path, callback) {
+  filesys.stat(path, (err, stats) => {
+    if (err) {
+      if (err.code === "ENOENT") {
+        callback(false);
+      } else {
+        callback(err);
+      }
     } else {
-      throw err;
+      callback(null, stats.isDirectory());
     }
-  }
+  });
 }
 
 function copyDir(source, dest) {
@@ -118,19 +142,32 @@ function combineCss(source, dest) {
       throw err;
     }
 
-    files.forEach((e) => {
-      if (e.isFile() && path.extname(e.name) === ext) {
-        const filePath = path.join(source, e.name);
-        const styles = filesys.readFileSync(filePath, "utf8");
-        data.push(styles);
-      }
-    });
+    const cssFiles = files.filter(
+      (e) => e.isFile() && path.extname(e.name) === ext
+    );
+    let pending = cssFiles.length;
 
-    const combinedData = data.join("\n");
-    filesys.writeFile(dest, combinedData, "utf8", (err) => {
-      if (err) {
-        throw err;
-      }
+    cssFiles.forEach((e) => {
+      const filePath = path.join(source, e.name);
+
+      filesys.readFile(filePath, "utf8", (err, styles) => {
+        if (err) {
+          throw err;
+        }
+
+        data.push(styles);
+        pending--;
+
+        if (pending === 0) {
+          const combinedData = data.join("\n");
+
+          filesys.writeFile(dest, combinedData, "utf8", (err) => {
+            if (err) {
+              throw err;
+            }
+          });
+        }
+      });
     });
   });
 }
