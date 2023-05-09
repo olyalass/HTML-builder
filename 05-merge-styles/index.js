@@ -12,19 +12,32 @@ function combineCss() {
       throw err;
     }
 
-    files.forEach((e) => {
-      if (e.isFile() && path.extname(e.name) === ext) {
-        const filePath = path.join(source, e.name);
-        const styles = filesys.readFileSync(filePath, "utf8");
-        data.push(styles);
-      }
-    });
+    const cssFiles = files.filter(
+      (e) => e.isFile() && path.extname(e.name) === ext
+    );
+    let pending = cssFiles.length;
 
-    const combinedData = data.join("\n");
-    filesys.writeFile(dest, combinedData, "utf8", (err) => {
-      if (err) {
-        throw err;
-      }
+    cssFiles.forEach((e) => {
+      const filePath = path.join(source, e.name);
+
+      filesys.readFile(filePath, "utf8", (err, styles) => {
+        if (err) {
+          throw err;
+        }
+
+        data.push(styles);
+        pending--;
+
+        if (pending === 0) {
+          const combinedData = data.join("\n");
+
+          filesys.writeFile(dest, combinedData, "utf8", (err) => {
+            if (err) {
+              throw err;
+            }
+          });
+        }
+      });
     });
   });
 }
