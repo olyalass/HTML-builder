@@ -13,9 +13,15 @@ filesys.readdir(dir, { withFileTypes: true }, (err, files) => {
     .filter((e) => e.isFile())
     .forEach((e) => {
       const filePath = path.join(dir, e.name);
-      const stats = filesys.statSync(filePath);
-      const ext = path.extname(filePath);
-      const size = stats.size;
-      console.log(`${e.name} - ${ext} - ${size} bytes`);
+      filesys.stat(filePath, (err, stats) => {
+        if (err) {
+          console.error(`Error: ${err}`);
+          return;
+        }
+
+        const ext = path.extname(filePath);
+        const size = stats.size;
+        console.log(`${e.name} - ${ext} - ${size} bytes`);
+      });
     });
 });
