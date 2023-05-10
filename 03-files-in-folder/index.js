@@ -20,8 +20,11 @@ filesys.readdir(dir, { withFileTypes: true }, (err, files) => {
         }
 
         const ext = path.extname(filePath);
+        const dot = e.name.lastIndexOf(".");
         const size = stats.size;
-        console.log(`${e.name} - ${ext} - ${size} bytes`);
+        console.log(
+          `${e.name.slice(0, dot)} - ${ext.slice(1)} - ${size} bytes`
+        );
       });
     });
 });
